@@ -19,14 +19,20 @@ licenses(["notice"])
 
 cc_library(
     name = "bluetooth",
-    srcs = [
-        "bluetooth_bwu_handler.cc",
-        "bluetooth_classic.cc",
-        "bluetooth_endpoint_channel.cc",
-    ],
+    srcs = select({
+        "@platforms//os:ios": [
+            "bluetooth_classic_stub.cc",
+        ],
+        "//conditions:default": [
+            "bluetooth_bwu_handler.cc",
+            "bluetooth_classic.cc",
+            "bluetooth_endpoint_channel.cc",
+        ],
+    }),
     hdrs = [
         "bluetooth_bwu_handler.h",
         "bluetooth_classic.h",
+        "bluetooth_classic_stub.h",
         "bluetooth_endpoint_channel.h",
     ],
     visibility = [
@@ -59,9 +65,14 @@ cc_test(
     name = "bluetooth_test",
     size = "small",
     srcs = [
-        "bluetooth_bwu_handler_test.cc",
         "bluetooth_classic_test.cc",
-    ],
+    ] + select({
+        "@platforms//os:ios": [],
+        "//conditions:default": [
+            "bluetooth_bwu_handler_test.cc",
+            "bluetooth_classic_stub.cc",
+        ],
+    }),
     deps = [
         ":bluetooth",
         "//connections/implementation:bwu_handler",
@@ -74,6 +85,7 @@ cc_test(
         "//internal/platform:cancellation_flag",
         "//internal/platform:comm",
         "//internal/platform:logging",
+        "//internal/platform:mac_address",
         "//internal/platform:test_util",
         "//internal/platform:types",
         "//internal/platform/implementation:types",

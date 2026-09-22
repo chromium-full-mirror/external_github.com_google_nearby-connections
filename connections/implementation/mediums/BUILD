@@ -27,16 +27,22 @@ cc_library(
         "wifi_aware.cc",
         "wifi_aware_bwu_handler.cc",
         "wifi_aware_endpoint_channel.cc",
-        "wifi_direct.cc",
-        "wifi_direct_bwu_handler.cc",
-        "wifi_direct_endpoint_channel.cc",
         "wifi_hotspot.cc",
         "wifi_hotspot_bwu_handler.cc",
         "wifi_hotspot_endpoint_channel.cc",
         "wifi_lan.cc",
         "wifi_lan_bwu_handler.cc",
         "wifi_lan_endpoint_channel.cc",
-    ],
+    ] + select({
+        "@platforms//os:ios": [
+            "wifi_direct_stub.cc",
+        ],
+        "//conditions:default": [
+            "wifi_direct.cc",
+            "wifi_direct_bwu_handler.cc",
+            "wifi_direct_endpoint_channel.cc",
+        ],
+    }),
     hdrs = [
         "ble.h",
         "ble_endpoint_channel.h",
@@ -49,6 +55,7 @@ cc_library(
         "wifi_direct.h",
         "wifi_direct_bwu_handler.h",
         "wifi_direct_endpoint_channel.h",
+        "wifi_direct_stub.h",
         "wifi_hotspot.h",
         "wifi_hotspot_bwu_handler.h",
         "wifi_hotspot_endpoint_channel.h",
@@ -213,13 +220,19 @@ cc_test(
         "wifi_hotspot_test.cc",
         "wifi_lan_test.cc",
         "wifi_test.cc",
-    ],
+    ] + select({
+        "@platforms//os:ios": [],
+        "//conditions:default": [
+            "wifi_direct_stub.cc",
+        ],
+    }),
     shard_count = 16,
     deps = [
         ":bluetooth_radio",
         ":lost_entity_tracker",
         ":mediums",
         "//connections:core_types",
+        "//connections/implementation:bwu_handler",
         "//connections/implementation:endpoint_channel",
         "//connections/implementation:types",
         "//connections/implementation/flags:connections_flags",
@@ -237,6 +250,7 @@ cc_test(
         "//internal/platform/implementation:types",
         "//internal/platform/implementation/g3",  # build_cleaner: keep
         "@com_github_protobuf_matchers//protobuf-matchers",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -247,10 +261,14 @@ cc_test(
     name = "bwu_handler_test",
     size = "small",
     srcs = [
-        "wifi_direct_bwu_handler_test.cc",
         "wifi_hotspot_bwu_handler_test.cc",
         "wifi_lan_bwu_handler_test.cc",
-    ],
+    ] + select({
+        "@platforms//os:ios": [],
+        "//conditions:default": [
+            "wifi_direct_bwu_handler_test.cc",
+        ],
+    }),
     deps = [
         ":mediums",
         "//connections/implementation:bwu_handler",
@@ -270,6 +288,7 @@ cc_test(
         "//internal/platform/implementation:platform",
         "//internal/platform/implementation/g3",  # build_cleaner: keep
         "@com_github_protobuf_matchers//protobuf-matchers",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",

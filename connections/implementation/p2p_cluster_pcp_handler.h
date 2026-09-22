@@ -330,12 +330,12 @@ class P2pClusterPcpHandler : public BasePcpHandler {
 
   Awdl& awdl_medium_;
   BluetoothRadio& bluetooth_radio_;
-  BluetoothClassic& bluetooth_medium_;
+  BluetoothClassicInterface& bluetooth_medium_;
   Ble& ble_medium_;
   WifiLan& wifi_lan_medium_;
   WifiAware& wifi_aware_medium_;
   WifiHotspot& wifi_hotspot_medium_;
-  WifiDirect& wifi_direct_medium_;
+  WifiDirectInterface& wifi_direct_medium_;
   mediums::WebRtc& webrtc_medium_;
   InjectedBluetoothDeviceStore& injected_bluetooth_device_store_;
   // Maintains a map of client_id to service_id for bluetooth classic

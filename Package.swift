@@ -527,6 +527,13 @@ let package = Package(
         "internal/platform/implementation/apple/webrtc.mm",
         // Only used in tests
         "internal/platform/medium_environment.cc",
+        // Unsupported mediums on Apple platforms
+        "connections/implementation/mediums/bluetooth/bluetooth_bwu_handler.cc",
+        "connections/implementation/mediums/bluetooth/bluetooth_classic.cc",
+        "connections/implementation/mediums/bluetooth/bluetooth_endpoint_channel.cc",
+        "connections/implementation/mediums/wifi_direct.cc",
+        "connections/implementation/mediums/wifi_direct_bwu_handler.cc",
+        "connections/implementation/mediums/wifi_direct_endpoint_channel.cc",
       ],
       sources: [
         "compiled_proto",

@@ -35,7 +35,52 @@
 namespace nearby {
 namespace connections {
 
-class WifiDirect {
+// Polymorphic interface for the WifiDirect medium.
+class WifiDirectInterface {
+ public:
+  using AcceptedConnectionCallback = absl::AnyInvocable<void(
+      const std::string& service_id, std::unique_ptr<EndpointChannel> channel)>;
+  using WifiDirectAuthType =
+      ::location::nearby::proto::connections::WifiDirectAuthType;
+
+  virtual ~WifiDirectInterface() = default;
+
+  virtual bool IsGOAvailable() const = 0;
+  virtual bool IsGCAvailable() const = 0;
+
+  virtual bool IsGOStarted() = 0;
+  virtual bool StartWifiDirect() = 0;
+  virtual bool StopWifiDirect() = 0;
+
+  virtual bool IsConnectedToGO() = 0;
+  virtual bool ConnectWifiDirect(
+      const WifiDirectCredentials& wifi_direct_credentials) = 0;
+  virtual bool DisconnectWifiDirect() = 0;
+
+  virtual bool StartAcceptingConnections(
+      const std::string& service_id, AcceptedConnectionCallback callback) = 0;
+  virtual bool StopAcceptingConnections(const std::string& service_id) = 0;
+  virtual bool IsAcceptingConnections(const std::string& service_id) = 0;
+
+  virtual ErrorOr<std::unique_ptr<EndpointChannel>> Connect(
+      const std::string& service_id, const std::string& ip_address, int port,
+      CancellationFlag* cancellation_flag) = 0;
+
+  virtual WifiDirectCredentials* GetCredentials(
+      absl::string_view service_id) = 0;
+
+  virtual std::vector<WifiDirectAuthType> GetSupportedWifiDirectAuthTypes()
+      const = 0;
+
+  virtual WifiDirectAuthType GetPreferredWifiDirectAuthType() const = 0;
+
+  virtual bool SetPreferredWifiDirectAuthType(WifiDirectAuthType auth_type) = 0;
+
+  virtual std::unique_ptr<BwuHandler> CreateBwuHandler(
+      BwuHandler::IncomingConnectionCallback incoming_connection_callback) = 0;
+};
+
+class WifiDirect : public WifiDirectInterface {
  public:
   // Callback that is invoked when a new connection is accepted.
   using AcceptedConnectionCallback = absl::AnyInvocable<void(
@@ -44,7 +89,7 @@ class WifiDirect {
       ::location::nearby::proto::connections::WifiDirectAuthType;
 
   WifiDirect();
-  ~WifiDirect();
+  ~WifiDirect() override;
   // Not copyable or movable
   WifiDirect(const WifiDirect&) = delete;
   WifiDirect& operator=(const WifiDirect&) = delete;
@@ -52,37 +97,37 @@ class WifiDirect {
   WifiDirect& operator=(WifiDirect&&) = delete;
 
   // Returns true, if WifiDirect Group Owner is supported by a platform.
-  bool IsGOAvailable() const ABSL_LOCKS_EXCLUDED(mutex_);
+  bool IsGOAvailable() const override ABSL_LOCKS_EXCLUDED(mutex_);
   // Returns true, if WifiDirect Group Client is supported by a platform.
-  bool IsGCAvailable() const ABSL_LOCKS_EXCLUDED(mutex_);
+  bool IsGCAvailable() const override ABSL_LOCKS_EXCLUDED(mutex_);
 
   // If WifiDirect Group Owner started
-  bool IsGOStarted() ABSL_LOCKS_EXCLUDED(mutex_);
+  bool IsGOStarted() override ABSL_LOCKS_EXCLUDED(mutex_);
   // Start WifiDirect Group Owner. Returns true if WifiDirect GO is successfully
   // started.
-  bool StartWifiDirect() ABSL_LOCKS_EXCLUDED(mutex_);
+  bool StartWifiDirect() override ABSL_LOCKS_EXCLUDED(mutex_);
   // Stop WifiDirect Group Owner
-  bool StopWifiDirect() ABSL_LOCKS_EXCLUDED(mutex_);
+  bool StopWifiDirect() override ABSL_LOCKS_EXCLUDED(mutex_);
 
   // If WifiDirect Group Client connects to Group Owner
-  bool IsConnectedToGO() ABSL_LOCKS_EXCLUDED(mutex_);
+  bool IsConnectedToGO() override ABSL_LOCKS_EXCLUDED(mutex_);
   // WifiDirect Group Client request to connect to the Group Owner
   bool ConnectWifiDirect(const WifiDirectCredentials& wifi_direct_credentials)
-      ABSL_LOCKS_EXCLUDED(mutex_);
+      override ABSL_LOCKS_EXCLUDED(mutex_);
   // WifiDirect Group Client request to disconnect from the Group Owner
-  bool DisconnectWifiDirect() ABSL_LOCKS_EXCLUDED(mutex_);
+  bool DisconnectWifiDirect() override ABSL_LOCKS_EXCLUDED(mutex_);
 
   // Starts a worker thread, creates a WifiDirect socket, associates it with a
   // service id.
   bool StartAcceptingConnections(const std::string& service_id,
-                                 AcceptedConnectionCallback callback)
+                                 AcceptedConnectionCallback callback) override
       ABSL_LOCKS_EXCLUDED(mutex_);
 
   // Closes socket corresponding to a service id.
-  bool StopAcceptingConnections(const std::string& service_id)
+  bool StopAcceptingConnections(const std::string& service_id) override
       ABSL_LOCKS_EXCLUDED(mutex_);
 
-  bool IsAcceptingConnections(const std::string& service_id)
+  bool IsAcceptingConnections(const std::string& service_id) override
       ABSL_LOCKS_EXCLUDED(mutex_);
 
   // Establishes connection to WifiDirect service by ip address and port for
@@ -90,29 +135,31 @@ class WifiDirect {
   // On success, a non-null EndpointChannel is returned.
   ErrorOr<std::unique_ptr<EndpointChannel>> Connect(
       const std::string& service_id, const std::string& ip_address, int port,
-      CancellationFlag* cancellation_flag) ABSL_LOCKS_EXCLUDED(mutex_);
+      CancellationFlag* cancellation_flag) override ABSL_LOCKS_EXCLUDED(mutex_);
 
   // Gets SoftAP ssid + password + ip address + gateway + port etc for remote
   // services on the network to identify and connect to this service.
   // Credential is for the currently-hosted WiFi SoftAP ServerSocket (if any).
-  WifiDirectCredentials* GetCredentials(absl::string_view service_id)
+  WifiDirectCredentials* GetCredentials(absl::string_view service_id) override
       ABSL_LOCKS_EXCLUDED(mutex_);
 
   // Returns the supported WifiDirect auth types.
-  std::vector<WifiDirectAuthType> GetSupportedWifiDirectAuthTypes() {
+  std::vector<WifiDirectAuthType> GetSupportedWifiDirectAuthTypes()
+      const override {
     return supported_wifi_direct_auth_types_;
   }
 
   // Returns the preferred WifiDirect auth type.
-  WifiDirectAuthType GetPreferredWifiDirectAuthType() {
+  WifiDirectAuthType GetPreferredWifiDirectAuthType() const override {
     return preferred_wifi_direct_auth_type_;
   }
 
   // Sets the preferred WifiDirect auth type.
-  bool SetPreferredWifiDirectAuthType(WifiDirectAuthType auth_type);
+  bool SetPreferredWifiDirectAuthType(WifiDirectAuthType auth_type) override;
 
   std::unique_ptr<BwuHandler> CreateBwuHandler(
-      BwuHandler::IncomingConnectionCallback incoming_connection_callback);
+      BwuHandler::IncomingConnectionCallback incoming_connection_callback)
+      override;
 
  private:
   mutable Mutex mutex_;

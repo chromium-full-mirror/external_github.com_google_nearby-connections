@@ -43,7 +43,9 @@ Mediums::Mediums() {
 
 BluetoothRadio& Mediums::GetBluetoothRadio() { return bluetooth_radio_; }
 
-BluetoothClassic& Mediums::GetBluetoothClassic() { return bluetooth_classic_; }
+BluetoothClassicInterface& Mediums::GetBluetoothClassic() {
+  return bluetooth_classic_;
+}
 
 Ble& Mediums::GetBle() { return ble_; }
 
@@ -55,7 +57,7 @@ WifiAware& Mediums::GetWifiAware() { return wifi_aware_; }
 
 WifiHotspot& Mediums::GetWifiHotspot() { return wifi_hotspot_; }
 
-WifiDirect& Mediums::GetWifiDirect() { return wifi_direct_; }
+WifiDirectInterface& Mediums::GetWifiDirect() { return wifi_direct_; }
 
 mediums::WebRtc& Mediums::GetWebRtc() { return *webrtc_; }
 

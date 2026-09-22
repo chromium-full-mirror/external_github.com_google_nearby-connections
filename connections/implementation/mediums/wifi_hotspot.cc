@@ -65,8 +65,14 @@ bool WifiHotspot::IsAPAvailable() const {
 }
 
 bool WifiHotspot::IsAPAvailableLocked() const {
+#if defined(__APPLE__)
+  // Apple platforms only support joining a remote Wi-Fi Hotspot as a client
+  // (STA) and do not support hosting a SoftAP server.
+  return false;
+#else
   if (medium_.IsValid()) return medium_.IsInterfaceValid();
   return false;
+#endif
 }
 
 bool WifiHotspot::IsClientAvailable() const {
@@ -87,6 +93,7 @@ bool WifiHotspot::IsHotspotStarted() {
 // connect
 bool WifiHotspot::StartWifiHotspot() {
   MutexLock lock(&mutex_);
+  if (!IsAPAvailableLocked()) return false;
   if (is_hotspot_started_) {
     LOG(INFO) << "No need to start Hotspot because it is already started.";
     return true;

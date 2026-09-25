@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "gtest/gtest.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "connections/implementation/offline_frames.h"
@@ -27,9 +28,12 @@
 #include "connections/medium_selector.h"
 #include "connections/payload.h"
 #include "connections/status.h"
+#include "internal/base/file_path.h"
+#include "internal/base/files.h"
 #include "internal/platform/byte_array.h"
 #include "internal/platform/count_down_latch.h"
 #include "internal/platform/exception.h"
+#include "internal/platform/file.h"
 #include "internal/platform/implementation/system_clock.h"
 #include "internal/platform/input_stream.h"
 #include "internal/platform/logging.h"
@@ -132,6 +136,10 @@ class PayloadSimulationUser : public SimulationUser {
 
   bool IsConnected() const {
     return client_.IsConnectedToEndpoint(discovered_.endpoint_id);
+  }
+
+  void SetCustomSavePath(const std::string& path) {
+    pm_.SetCustomSavePath(&client_, path);
   }
 
  protected:
@@ -468,6 +476,50 @@ TEST_P(PayloadManagerTest, OfflineFrame_BeforeConnected_ShouldDrop) {
   user.ReceivePayload(std::move(payload), "1234");
   ASSERT_EQ(user.GetPayload().AsStream(), nullptr);
   user.Stop();
+  env_.Stop();
+}
+
+TEST_P(PayloadManagerTest, CancelCompletedIncomingFilePayloadDeletesFile) {
+  env_.Start();
+  PayloadSimulationUser user_a(kDeviceA, GetParam());
+  PayloadSimulationUser user_b(kDeviceB, GetParam());
+  user_a.SetCustomSavePath(::testing::TempDir());
+  ASSERT_TRUE(SetupConnection(user_a, user_b));
+
+  std::string sender_file_path =
+      absl::StrCat(::testing::TempDir(), "/unsolicited_sender_file.bin");
+  {
+    OutputFile sender_file(sender_file_path);
+    ASSERT_TRUE(sender_file.IsValid());
+    ASSERT_TRUE(sender_file.Write(kMessage).Ok());
+    ASSERT_TRUE(sender_file.Close().Ok());
+  }
+
+  user_a.ExpectPayload(payload_latch_);
+  user_b.SendPayload(Payload("", "unsolicited_received_file.bin",
+                             InputFile(sender_file_path)));
+  ASSERT_TRUE(payload_latch_.Await(kDefaultTimeout).result());
+  ASSERT_NE(user_a.GetPayload().AsFile(), nullptr);
+  FilePath received_file_path(user_a.GetPayload().AsFile()->GetFilePath());
+  user_a.GetPayload().AsFile()->Close();
+
+  // Wait until the incoming file transfer finishes (LAST_CHUNK processed and
+  // DestroyPendingPayload called on the status update thread).
+  EXPECT_TRUE(user_a.WaitForProgress(
+      [](const PayloadProgressInfo& info) {
+        return info.status == PayloadProgressInfo::Status::kSuccess;
+      },
+      kProgressTimeout));
+  EXPECT_TRUE(Files::FileExists(received_file_path));
+
+  // Even if CancelPayload runs after the incoming file transfer completed,
+  // it must still succeed and delete the unsolicited file from disk.
+  EXPECT_EQ(user_a.CancelPayload(), Status{Status::kSuccess});
+  EXPECT_FALSE(Files::FileExists(received_file_path));
+
+  Files::RemoveFile(FilePath(sender_file_path));
+  user_a.Stop();
+  user_b.Stop();
   env_.Stop();
 }
 

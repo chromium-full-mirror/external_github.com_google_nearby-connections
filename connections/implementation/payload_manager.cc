@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <string>
@@ -488,16 +489,28 @@ PayloadManager::PendingPayloadHandle PayloadManager::GetPayload(
 Status PayloadManager::CancelPayload(ClientProxy* client,
                                      Payload::Id payload_id) {
   PendingPayloadHandle canceled_payload = GetPayload(payload_id);
-  if (!canceled_payload) {
+  if (canceled_payload) {
+    // Mark the payload as canceled. For incoming payloads, also close and
+    // delete the underlying file/stream handle immediately so partially or
+    // fully written unsolicited files are removed even if the remote sender
+    // sends no further chunks.
+    canceled_payload->MarkLocallyCanceled();
+    if (canceled_payload->IsIncoming()) {
+      canceled_payload->Cancel();
+    }
+  }
+  bool canceled_stopped =
+      pending_payloads_.CancelStoppedIncomingPayload(payload_id);
+  if (!canceled_payload && !canceled_stopped) {
     VLOG(1) << "Client requested cancel for unknown payload_id=" << payload_id
             << ", ignoring.";
     return {Status::kPayloadUnknown};
   }
 
-  // Mark the payload as canceled.
-  canceled_payload->MarkLocallyCanceled();
   VLOG(1) << "Cancelling "
-          << (canceled_payload->IsIncoming() ? "incoming" : "outgoing")
+          << ((canceled_payload && !canceled_payload->IsIncoming())
+                  ? "outgoing"
+                  : "incoming")
           << " payload_id=" << payload_id << " at request of client.";
 
   // Return SUCCESS immediately. Remaining cleanup and updates will be sent
@@ -730,6 +743,9 @@ ErrorOr<PayloadManager::PendingPayloadHandle>
 PayloadManager::CreateIncomingPayload(const PayloadTransferFrame& frame,
                                       const std::string& endpoint_id,
                                       const std::string& save_path) {
+  if (frame.payload_header().has_id()) {
+    pending_payloads_.StopTrackingPayload(frame.payload_header().id());
+  }
   ErrorOr<std::unique_ptr<InternalPayload>> result =
       CreateIncomingInternalPayload(
           frame, save_path.empty() ? custom_save_path_ : save_path);
@@ -824,6 +840,8 @@ void PayloadManager::SendClientCallbacksForFinishedIncomingPayload(
         // Unless we never started tracking this payload (meaning we
         // failed to even create the InternalPayload), notify the client
         // (and close it).
+        pending_payload->MarkLocallyCanceled();
+        pending_payload->Cancel();
         PayloadProgressInfo update{payload_header.id(),
                                    PayloadStatusToTransferUpdateStatus(status),
                                    payload_header.total_size(), offset_bytes};
@@ -1195,6 +1213,12 @@ void PayloadManager::HandleSuccessfulIncomingChunk(
 
         PendingPayloadHandle pending_payload = GetPayload(payload_header.id());
         if (!pending_payload) {
+          return;
+        }
+        if (pending_payload->IsLocallyCanceled()) {
+          if (is_last_chunk) {
+            DestroyPendingPayload(payload_header.id());
+          }
           return;
         }
 
@@ -1632,9 +1656,11 @@ void PayloadManager::PendingPayload::SetOffsetForEndpoint(
 }
 
 void PayloadManager::PendingPayload::Close() {
-  bool was_closed = is_closed_.Set(true);
-  if (was_closed) return;
   if (internal_payload_) internal_payload_->Close();
+}
+
+void PayloadManager::PendingPayload::Cancel() {
+  if (internal_payload_) internal_payload_->Cancel();
 }
 
 void PayloadManager::RunOnStatusUpdateThread(
@@ -1666,11 +1692,16 @@ void PayloadManager::PendingPayloads::Remove(
     absl::flat_hash_map<Payload::Id, std::unique_ptr<PendingPayload>>::iterator
         it) {
   if (it != pending_payloads_.end()) {
+    if (it->second->IsIncoming()) {
+      it->second->Close();
+    }
     int refcount = it->second->DecRefCount();
     if (refcount == 0) {
       // Nobody is using the payload, we can remove it.
       VLOG(1) << "Erase payload " << it->second->ToString();
-      pending_payloads_.erase(it);
+      std::unique_ptr<PendingPayload> payload =
+          std::move(pending_payloads_.extract(it).mapped());
+      RetainStoppedIncomingPayload(std::move(payload));
     } else {
       // Someone is still using the payload. Move it to the garbage bin. The
       // payload will be removed when they release it.
@@ -1679,6 +1710,42 @@ void PayloadManager::PendingPayloads::Remove(
           std::move(pending_payloads_.extract(it).mapped()));
     }
   }
+}
+
+void PayloadManager::PendingPayloads::RetainStoppedIncomingPayload(
+    std::unique_ptr<PendingPayload> payload) {
+  if (!payload || !payload->IsIncoming() || payload->IsLocallyCanceled()) {
+    return;
+  }
+  if (stopped_incoming_payloads_.size() >= kMaxStoppedIncomingPayloads) {
+    stopped_incoming_payloads_.pop_front();
+  }
+  stopped_incoming_payloads_.push_back(std::move(payload));
+}
+
+bool PayloadManager::PendingPayloads::CancelStoppedIncomingPayload(
+    Payload::Id payload_id) {
+  MutexLock lock(&mutex_);
+  bool canceled = false;
+  for (auto& payload : payload_garbage_bin_) {
+    if (payload->IsIncoming() && payload->GetId() == payload_id) {
+      payload->MarkLocallyCanceled();
+      payload->Cancel();
+      canceled = true;
+    }
+  }
+  for (auto it = stopped_incoming_payloads_.begin();
+       it != stopped_incoming_payloads_.end();) {
+    if ((*it)->GetId() == payload_id) {
+      (*it)->MarkLocallyCanceled();
+      (*it)->Cancel();
+      it = stopped_incoming_payloads_.erase(it);
+      canceled = true;
+    } else {
+      ++it;
+    }
+  }
+  return canceled;
 }
 
 PayloadManager::PendingPayloadHandle
@@ -1702,6 +1769,7 @@ void PayloadManager::PendingPayloads::StopTrackingAllPayloads() {
   for (auto it = pending_payloads_.begin(); it != pending_payloads_.end();) {
     Remove(it++);
   }
+  stopped_incoming_payloads_.clear();
 }
 
 void PayloadManager::PendingPayloads::ForEachPayload(
@@ -1730,7 +1798,9 @@ void PayloadManager::PendingPayloads::Release(PendingPayload* payload) {
     int refcount = payload->DecRefCount();
     if (refcount == 0) {
       // The payload is not tracked and it was the last reference.
+      std::unique_ptr<PendingPayload> stopped_payload = std::move(*bin_it);
       payload_garbage_bin_.erase(bin_it);
+      RetainStoppedIncomingPayload(std::move(stopped_payload));
     }
   }
 }

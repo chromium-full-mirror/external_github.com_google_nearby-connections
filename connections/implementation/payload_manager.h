@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <utility>
@@ -163,6 +164,9 @@ class PayloadManager : public EndpointManager::FrameProcessor {
     // endpoints.
     void Close();
 
+    // Cancels internal_payload_ and removes any persisted incoming file.
+    void Cancel();
+
     std::string ToString() const;
 
     // Ref counting for `PendingPayloads` use only. `PendingPayloads` class owns
@@ -174,7 +178,6 @@ class PayloadManager : public EndpointManager::FrameProcessor {
     mutable Mutex mutex_;
     const bool is_incoming_;
     AtomicBoolean is_locally_canceled_{false};
-    AtomicBoolean is_closed_;
     const std::unique_ptr<InternalPayload> internal_payload_;
     absl::AnyInvocable<void(PendingPayload*) &&> destroy_callback_;
     absl::flat_hash_map<std::string, EndpointInfo> endpoints_
@@ -222,6 +225,8 @@ class PayloadManager : public EndpointManager::FrameProcessor {
   // Tracks and manages PendingPayload objects in a synchronized manner.
   class PendingPayloads {
    public:
+    static constexpr size_t kMaxStoppedIncomingPayloads = 128;
+
     PendingPayloads() = default;
     ~PendingPayloads() = default;
 
@@ -231,6 +236,8 @@ class PayloadManager : public EndpointManager::FrameProcessor {
     void StopTrackingPayload(Payload::Id payload_id)
         ABSL_LOCKS_EXCLUDED(mutex_);
     void StopTrackingAllPayloads() ABSL_LOCKS_EXCLUDED(mutex_);
+    bool CancelStoppedIncomingPayload(Payload::Id payload_id)
+        ABSL_LOCKS_EXCLUDED(mutex_);
     PendingPayloadHandle GetPayload(Payload::Id payload_id) const
         ABSL_LOCKS_EXCLUDED(mutex_);
     // Calls `callback` for each tracked payload. The callback must not call
@@ -243,6 +250,8 @@ class PayloadManager : public EndpointManager::FrameProcessor {
     void Remove(absl::flat_hash_map<
                 Payload::Id, std::unique_ptr<PendingPayload>>::iterator it)
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+    void RetainStoppedIncomingPayload(std::unique_ptr<PendingPayload> payload)
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
     mutable Mutex mutex_;
     absl::flat_hash_map<Payload::Id, std::unique_ptr<PendingPayload>>
         pending_payloads_ ABSL_GUARDED_BY(mutex_);
@@ -251,6 +260,11 @@ class PayloadManager : public EndpointManager::FrameProcessor {
     // garbage bin. When the `PendingPayloadHandle` is released, the payload
     // will be removed from the bin.
     std::vector<std::unique_ptr<PendingPayload>> payload_garbage_bin_
+        ABSL_GUARDED_BY(mutex_);
+    // Recently stopped incoming payloads that were not yet canceled, retained
+    // so an asynchronous `CancelPayload` arriving after `LAST_CHUNK` was
+    // processed can still remove an unsolicited incoming file from disk.
+    std::deque<std::unique_ptr<PendingPayload>> stopped_incoming_payloads_
         ABSL_GUARDED_BY(mutex_);
   };
 

@@ -100,7 +100,13 @@ class InternalPayload {
 
   // Cleans up any resources used by this Payload. Called when we're stopping
   // early, e.g. after being cancelled or having no more recipients left.
+  // Implementations must be idempotent (safe to call multiple times).
   virtual void Close() {}
+
+  // Cancels this Payload and removes any persisted artifacts (such as an
+  // incoming file on disk, even if all chunks were already received).
+  // Implementations must be idempotent (safe to call multiple times).
+  virtual void Cancel() { Close(); }
 
  protected:
   Payload payload_;

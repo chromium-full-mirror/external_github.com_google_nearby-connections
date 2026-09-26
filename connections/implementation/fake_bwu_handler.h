@@ -70,6 +70,9 @@ class FakeBwuHandler : public BaseBwuHandler {
   const std::vector<InputData>& handle_revert_calls() const {
     return handle_revert_calls_;
   }
+  void set_create_upgraded_channel_error(Error error) {
+    create_upgraded_channel_error_ = error;
+  }
 
   // Builds an incoming connection corresponding to
   // handle_initialize_calls()[initialize_call_index], and sends it to the
@@ -111,6 +114,9 @@ class FakeBwuHandler : public BaseBwuHandler {
     create_calls_.push_back({.client = client,
                              .service_id = service_id,
                              .endpoint_id = endpoint_id});
+    if (create_upgraded_channel_error_.has_value()) {
+      return {*create_upgraded_channel_error_};
+    }
     return {std::make_unique<FakeEndpointChannel>(medium_, service_id)};
   }
 
@@ -193,6 +199,7 @@ class FakeBwuHandler : public BaseBwuHandler {
   }
 
   Medium medium_;
+  std::optional<Error> create_upgraded_channel_error_;
   std::vector<InputData> create_calls_;
   std::vector<InputData> disconnect_calls_;
   std::vector<InputData> handle_initialize_calls_;

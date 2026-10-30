@@ -255,7 +255,6 @@ cc_library(
         "//proto:sharing_enums_cc_proto",
         "//sharing/analytics",
         "//sharing/certificates",
-        "//sharing/internal/api:platform",
         "//sharing/internal/public:logging",
         "//sharing/proto:enums_cc_proto",
         "//sharing/proto:wire_format_cc_proto",

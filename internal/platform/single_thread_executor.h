@@ -31,8 +31,8 @@ class ABSL_LOCKABLE SingleThreadExecutor : public SubmittableExecutor {
   SingleThreadExecutor()
       : SubmittableExecutor(Platform::CreateSingleThreadExecutor()) {}
   ~SingleThreadExecutor() override = default;
-  SingleThreadExecutor(SingleThreadExecutor&&) = default;
-  SingleThreadExecutor& operator=(SingleThreadExecutor&&) = default;
+  SingleThreadExecutor(const SingleThreadExecutor&) = delete;
+  SingleThreadExecutor& operator=(const SingleThreadExecutor&) = delete;
 };
 
 // Moves the object to `executor` and destroys it there.

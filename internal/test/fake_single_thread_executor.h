@@ -29,8 +29,8 @@ class ABSL_LOCKABLE FakeSingleThreadExecutor final
  public:
   FakeSingleThreadExecutor();
   ~FakeSingleThreadExecutor() override;
-  FakeSingleThreadExecutor(FakeSingleThreadExecutor&&) = default;
-  FakeSingleThreadExecutor& operator=(FakeSingleThreadExecutor&&) = default;
+  FakeSingleThreadExecutor(const FakeSingleThreadExecutor&) = delete;
+  FakeSingleThreadExecutor& operator=(const FakeSingleThreadExecutor&) = delete;
 
   void Execute(const std::string& name, Runnable&& runnable) override;
 

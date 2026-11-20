@@ -15,6 +15,7 @@
 #include "internal/platform/scheduled_executor.h"
 
 #include <atomic>
+#include <utility>
 
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
@@ -44,10 +45,12 @@ TEST(ScheduledExecutorTest, CanExecute) {
   absl::CondVar cond;
   std::atomic_bool done = false;
   ScheduledExecutor executor;
-  executor.Execute([&done, &cond]() {
+  EXPECT_FALSE(executor.Execute(nullptr));
+  EXPECT_FALSE(executor.Execute("empty", nullptr));
+  EXPECT_TRUE(executor.Execute([&done, &cond]() {
     done = true;
     cond.SignalAll();
-  });
+  }));
   {
     absl::MutexLock lock(mutex);
     if (!done) {
@@ -55,6 +58,11 @@ TEST(ScheduledExecutorTest, CanExecute) {
     }
   }
   EXPECT_TRUE(done);
+
+  absl::Notification named_done;
+  EXPECT_TRUE(
+      executor.Execute("named_task", [&named_done]() { named_done.Notify(); }));
+  EXPECT_TRUE(named_done.WaitForNotificationWithTimeout(kLongDelay));
 }
 
 TEST(ScheduledExecutorTest, CanSchedule) {
@@ -192,18 +200,27 @@ TEST(ScheduledExecutorTest, ExecuteAfterShutdownFails) {
   ScheduledExecutor executor;
 
   executor.Shutdown();
-  executor.Execute([&]() { FAIL() << "Task should not run"; });
+  EXPECT_FALSE(executor.Execute([&]() { FAIL() << "Task should not run"; }));
+  EXPECT_FALSE(
+      executor.Execute("named", [&]() { FAIL() << "Task should not run"; }));
+
+  ScheduledExecutor active_executor;
+  ScheduledExecutor moved_to(std::move(active_executor));
+  EXPECT_FALSE(
+      active_executor.Execute([&]() { FAIL() << "Task should not run"; }));
+  EXPECT_FALSE(active_executor.Execute(
+      "named", [&]() { FAIL() << "Task should not run"; }));
 }
 
 TEST(ScheduledExecutorTest, ExecuteDuringShutdownFails) {
   absl::Notification notification;
   ScheduledExecutor executor;
 
-  executor.Execute([&]() {
+  EXPECT_TRUE(executor.Execute([&]() {
     notification.Notify();
     absl::SleepFor(kLongDelay);
-    executor.Execute([&]() { FAIL() << "Task should not run"; });
-  });
+    EXPECT_FALSE(executor.Execute([&]() { FAIL() << "Task should not run"; }));
+  }));
   notification.WaitForNotification();
   executor.Shutdown();
 }
